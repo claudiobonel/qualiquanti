@@ -8,7 +8,7 @@
 ![pandas](https://img.shields.io/badge/pandas-150458?style=flat&logo=pandas&logoColor=white)
 ![Claude](https://img.shields.io/badge/Claude_Code-Anthropic-D97757?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
-![Version](https://img.shields.io/badge/version-v1.0.2-blue?style=flat)
+![Version](https://img.shields.io/badge/version-v1.0.3-blue?style=flat)
 
 > **Versão Beta** — Converse com seus dados em português, sem escrever uma linha de código.
 >
@@ -80,7 +80,7 @@ Antes de instalar o projeto, você precisa ter instalado na sua máquina:
 
 | Ferramenta | Versão mínima | Para que serve |
 |---|---|---|
-| Python | 3.10–3.13 | Rodar o backend Flask (3.14+ incompatível com pandas) |
+| Python | 3.10–3.13 | Rodar o backend Flask |
 | Node.js | 18+ | Necessário para o Claude Code CLI |
 | npm | 9+ | Instalado junto com o Node.js |
 | Git | qualquer | Clonar o repositório |
@@ -96,7 +96,7 @@ Você também precisa de uma conta na Anthropic com acesso ao Claude Code CLI (v
 ### Passo 1 — Instalar Python 3.10+
 
 **Windows:**
-- Baixe em [python.org/downloads](https://www.python.org/downloads/) — use a versão **3.13 ou anterior** (3.14+ é incompatível com pandas)
+- Baixe em [python.org/downloads](https://www.python.org/downloads/) — use a versão **3.13 ou anterior** 
 - Durante a instalação, **marque a opção "Add Python to PATH"**
 - Verifique: `python --version`
 
