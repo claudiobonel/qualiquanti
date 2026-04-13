@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Uploads e histórico (dados do usuário — não versionar)
+uploads/
+history/
+
+# Charts gerados
+static/charts/*.png
+
+# Env
+.env
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chatbot de Dados</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3347;
+      --accent: #5b7cf6;
+      --accent-hover: #7b96ff;
+      --text: #e2e4f0;
+      --text-muted: #7c829a;
+      --user-bg: #2a3a6e;
+      --bot-bg: #1e2235;
+      --success: #34c77b;
+      --danger: #f04f5a;
+      --radius: 12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ─────────────────────────────────── */
+    #sidebar {
+      width: 280px;
+      min-width: 280px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      padding: 20px 16px;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    #sidebar h1 {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #sidebar h1 span { font-size: 20px; }
+
+    /* Nova conversa button */
+    #btn-new-session {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #btn-new-session:hover { background: var(--accent-hover); }
+
+    /* Upload zone */
+    #upload-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 20px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    #upload-zone:hover, #upload-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(91, 124, 246, 0.06);
+    }
+
+    #upload-zone .icon { font-size: 26px; margin-bottom: 6px; }
+    #upload-zone p { font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+    #upload-zone strong { color: var(--accent); }
+
+    #file-input { display: none; }
+
+    /* Dataset info */
+    #dataset-info { display: none; }
+    #dataset-info.visible { display: block; }
+
+    #dataset-header {
+      background: var(--surface2);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      margin-bottom: 10px;
+    }
+
+    #dataset-header .filename {
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text);
+      word-break: break-word;
+      margin-bottom: 3px;
+    }
+
+    #dataset-header .dims {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    #columns-list { display: flex; flex-direction: column; gap: 5px; }
+
+    .col-item {
+      background: var(--surface2);
+      border-radius: 8px;
+      padding: 7px 9px;
+      font-size: 11px;
+    }
+
+    .col-name { font-weight: 600; color: var(--text); }
+    .col-meta { color: var(--text-muted); margin-top: 2px; }
+
+    .dtype-badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 4px;
+      border-radius: 4px;
+      margin-left: 4px;
+      background: rgba(91, 124, 246, 0.2);
+      color: var(--accent);
+    }
+
+    .dtype-badge.cat { background: rgba(52, 199, 123, 0.15); color: #34c77b; }
+
+    /* Divider */
+    .sidebar-divider {
+      height: 1px;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+
+    /* History section */
+    #history-section { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+
+    #history-section h3 {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    #history-list { display: flex; flex-direction: column; gap: 4px; }
+
+    .history-item {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      text-align: left;
+    }
+
+    .history-item:hover { background: var(--surface2); border-color: var(--border); }
+    .history-item.active { background: rgba(91, 124, 246, 0.12); border-color: var(--accent); }
+
+    .history-item .hi-body { flex: 1; min-width: 0; }
+
+    .history-item .hi-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .history-item .hi-meta {
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .history-item .hi-del {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 13px;
+      padding: 0 2px;
+      line-height: 1;
+      flex-shrink: 0;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s;
+    }
+
+    .history-item:hover .hi-del { opacity: 1; }
+    .history-item .hi-del:hover { color: var(--danger); }
+
+    #history-empty {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-align: center;
+      padding: 12px 0;
+      display: none;
+    }
+
+    /* Clear history button */
+    #btn-clear {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 8px;
+      padding: 7px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: none;
+    }
+
+    #btn-clear:hover { border-color: var(--danger); color: var(--danger); }
+    #btn-clear.visible { display: block; }
+
+    /* ── Chat area ───────────────────────────────── */
+    #chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #chat-header {
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    #chat-title {
+      font-size: 14px;
+      color: var(--text-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Welcome state */
+    #welcome {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 12px;
+      color: var(--text-muted);
+    }
+
+    #welcome .big-icon { font-size: 48px; }
+    #welcome h2 { font-size: 18px; color: var(--text); }
+    #welcome p { font-size: 14px; max-width: 360px; line-height: 1.6; }
+
+    /* Message bubbles */
+    .message { display: flex; gap: 12px; max-width: 840px; }
+    .message.user { align-self: flex-end; flex-direction: row-reverse; }
+    .message.assistant { align-self: flex-start; }
+
+    .avatar {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      flex-shrink: 0;
+    }
+
+    .message.user .avatar { background: var(--user-bg); }
+    .message.assistant .avatar { background: var(--surface2); }
+
+    .bubble {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      font-size: 14px;
+      line-height: 1.6;
+      max-width: 100%;
+    }
+
+    .message.user .bubble {
+      background: var(--user-bg);
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.assistant .bubble {
+      background: var(--bot-bg);
+      border: 1px solid var(--border);
+      border-bottom-left-radius: 4px;
+    }
+
+    /* Markdown inside bubbles */
+    .bubble h1, .bubble h2, .bubble h3 {
+      margin: 12px 0 6px;
+      color: var(--text);
+    }
+    .bubble h1 { font-size: 16px; }
+    .bubble h2 { font-size: 15px; }
+    .bubble h3 { font-size: 14px; }
+    .bubble p { margin-bottom: 8px; }
+    .bubble ul, .bubble ol { padding-left: 20px; margin-bottom: 8px; }
+    .bubble li { margin-bottom: 4px; }
+    .bubble code {
+      background: rgba(255,255,255,0.08);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-family: 'Fira Code', monospace;
+      font-size: 12px;
+    }
+    .bubble pre {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+    .bubble pre code { background: none; padding: 0; font-size: 12px; }
+    .bubble table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 8px 0;
+      font-size: 13px;
+    }
+    .bubble th, .bubble td {
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      text-align: left;
+    }
+    .bubble th { background: var(--surface2); }
+    .bubble strong { color: var(--accent-hover); }
+    .bubble blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 12px;
+      color: var(--text-muted);
+      margin: 8px 0;
+    }
+    .bubble img {
+      max-width: 100%;
+      border-radius: 8px;
+      margin: 8px 0;
+      border: 1px solid var(--border);
+    }
+
+    /* Typing indicator */
+    .typing-indicator {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 12px 16px;
+    }
+
+    .typing-indicator span {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      animation: bounce 1.2s infinite;
+    }
+
+    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); }
+      40% { transform: translateY(-6px); }
+    }
+
+    /* Input area */
+    #input-area {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+
+    #input-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+    }
+
+    #msg-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 14px;
+      color: var(--text);
+      font-size: 14px;
+      resize: none;
+      min-height: 44px;
+      max-height: 140px;
+      outline: none;
+      font-family: inherit;
+      line-height: 1.5;
+      transition: border-color 0.2s;
+    }
+
+    #msg-input:focus { border-color: var(--accent); }
+    #msg-input::placeholder { color: var(--text-muted); }
+    #msg-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    #btn-send {
+      width: 44px;
+      height: 44px;
+      background: var(--accent);
+      border: none;
+      border-radius: var(--radius);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, transform 0.1s;
+      flex-shrink: 0;
+    }
+
+    #btn-send:hover:not(:disabled) { background: var(--accent-hover); }
+    #btn-send:active:not(:disabled) { transform: scale(0.95); }
+    #btn-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #btn-send svg { width: 18px; height: 18px; fill: white; }
+
+    /* Upload progress */
+    #upload-status {
+      font-size: 12px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      margin-top: 8px;
+      display: none;
+    }
+
+    #upload-status.loading { display: block; color: var(--accent); }
+    #upload-status.error { display: block; color: var(--danger); }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <h1><span>📊</span> Dados</h1>
+
+    <button id="btn-new-session" onclick="newSession()">＋ Nova conversa</button>
+
+    <!-- Upload zone -->
+    <div id="upload-zone" role="button" tabindex="0">
+      <div class="icon">📁</div>
+      <p>Arraste um arquivo aqui<br>ou <strong>clique para escolher</strong></p>
+      <p style="margin-top:5px;font-size:11px">.xlsx</p>
+    </div>
+    <input type="file" id="file-input" accept=".xlsx">
+    <div id="upload-status"></div>
+
+    <!-- Dataset info (visible after upload) -->
+    <div id="dataset-info">
+      <div id="dataset-header">
+        <div class="filename" id="ds-filename"></div>
+        <div class="dims" id="ds-dims"></div>
+      </div>
+      <div id="columns-list"></div>
+    </div>
+
+    <button id="btn-clear" onclick="clearHistory()">🗑 Limpar conversa</button>
+
+    <div class="sidebar-divider"></div>
+
+    <!-- History section -->
+    <div id="history-section">
+      <h3>Conversas anteriores</h3>
+      <div id="history-list"></div>
+      <div id="history-empty">Nenhuma conversa salva.</div>
+    </div>
+  </aside>
+
+  <!-- Chat area -->
+  <section id="chat-area">
+    <div id="chat-header">
+      <span id="chat-title">Converse com seus dados — faça perguntas, peça análises, ranqueamentos ou insights.</span>
+    </div>
+
+    <div id="messages">
+      <div id="welcome">
+        <div class="big-icon">🤖</div>
+        <h2>Chatbot de Análise de Dados</h2>
+        <p>Faça upload de um arquivo <strong>.xlsx</strong> na barra lateral e comece a fazer perguntas sobre seus dados.</p>
+      </div>
+    </div>
+
+    <div id="input-area">
+      <div id="input-row">
+        <textarea
+          id="msg-input"
+          placeholder="Faça uma pergunta sobre os dados…"
+          rows="1"
+          disabled
+        ></textarea>
+        <button id="btn-send" disabled title="Enviar">
+          <svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <script>
+    // ── State ──────────────────────────────────────
+    let sessionId = null;
+    let isWaiting = false;
+
+    // ── Init ───────────────────────────────────────
+    async function init() {
+      await loadHistoryList();
+
+      const stored = sessionStorage.getItem('session_id');
+      if (stored) {
+        const ok = await resumeSession(stored);
+        if (!ok) await createSession();
+      } else {
+        await createSession();
+      }
+    }
+
+    async function createSession() {
+      const res = await fetch('/sessions', { method: 'POST' });
+      const data = await res.json();
+      sessionId = data.session_id;
+      sessionStorage.setItem('session_id', sessionId);
+      setActiveHistoryItem(sessionId);
+    }
+
+    async function resumeSession(sid) {
+      try {
+        const res = await fetch(`/sessions/${sid}`);
+        if (!res.ok) return false;
+        const data = await res.json();
+        sessionId = sid;
+        sessionStorage.setItem('session_id', sid);
+        restoreSession(data);
+        setActiveHistoryItem(sid);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    function restoreSession(data) {
+      // Clear UI
+      const messages = document.getElementById('messages');
+      messages.innerHTML = '';
+
+      // Restore dataset info
+      if (data.file && data.file_ok) {
+        renderDatasetInfo(data.file);
+        enableChat();
+      } else {
+        document.getElementById('dataset-info').classList.remove('visible');
+        document.getElementById('btn-clear').classList.remove('visible');
+        disableChat();
+      }
+
+      // Update header title
+      if (data.title && data.title !== 'Nova conversa') {
+        document.getElementById('chat-title').textContent = data.title;
+      } else {
+        document.getElementById('chat-title').textContent =
+          'Converse com seus dados — faça perguntas, peça análises, ranqueamentos ou insights.';
+      }
+
+      // Restore messages
+      if (!data.history || data.history.length === 0) {
+        if (!data.file || !data.file_ok) {
+          messages.innerHTML = `
+            <div id="welcome">
+              <div class="big-icon">🤖</div>
+              <h2>Chatbot de Análise de Dados</h2>
+              <p>Faça upload de um arquivo <strong>.xlsx</strong> na barra lateral e comece a fazer perguntas sobre seus dados.</p>
+            </div>`;
+        }
+        return;
+      }
+
+      for (const msg of data.history) {
+        appendMessage(msg.role, msg.content);
+      }
+    }
+
+    async function newSession() {
+      await createSession();
+
+      // Reset UI
+      const messages = document.getElementById('messages');
+      messages.innerHTML = `
+        <div id="welcome">
+          <div class="big-icon">🤖</div>
+          <h2>Chatbot de Análise de Dados</h2>
+          <p>Faça upload de um arquivo <strong>.xlsx</strong> na barra lateral e comece a fazer perguntas sobre seus dados.</p>
+        </div>`;
+
+      document.getElementById('dataset-info').classList.remove('visible');
+      document.getElementById('btn-clear').classList.remove('visible');
+      document.getElementById('chat-title').textContent =
+        'Converse com seus dados — faça perguntas, peça análises, ranqueamentos ou insights.';
+      disableChat();
+      await loadHistoryList();
+    }
+
+    // ── History list ───────────────────────────────
+    async function loadHistoryList() {
+      try {
+        const res = await fetch('/sessions');
+        const sessions = await res.json();
+        renderHistoryList(sessions);
+      } catch (_) {}
+    }
+
+    function renderHistoryList(sessions) {
+      const list = document.getElementById('history-list');
+      const empty = document.getElementById('history-empty');
+      list.innerHTML = '';
+
+      if (!sessions || sessions.length === 0) {
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      for (const s of sessions) {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        item.dataset.sid = s.session_id;
+
+        const date = s.updated_at ? s.updated_at.slice(0, 10) : '';
+        const filePart = s.filename ? `· 📄 ${s.filename.length > 18 ? s.filename.slice(0, 18) + '…' : s.filename}` : '';
+        const msgPart = s.msg_count ? `· ${s.msg_count} msg` : '';
+
+        item.innerHTML = `
+          <div class="hi-body">
+            <div class="hi-title">${escHtml(s.title || 'Conversa')}</div>
+            <div class="hi-meta">${date} ${filePart} ${msgPart}</div>
+          </div>
+          <button class="hi-del" title="Excluir">✕</button>
+        `;
+
+        item.querySelector('.hi-body').addEventListener('click', () => loadSession(s.session_id));
+        item.querySelector('.hi-del').addEventListener('click', (e) => {
+          e.stopPropagation();
+          deleteSession(s.session_id, item);
+        });
+
+        if (s.session_id === sessionId) item.classList.add('active');
+        list.appendChild(item);
+      }
+    }
+
+    function setActiveHistoryItem(sid) {
+      document.querySelectorAll('.history-item').forEach(el => {
+        el.classList.toggle('active', el.dataset.sid === sid);
+      });
+    }
+
+    async function loadSession(sid) {
+      if (isWaiting) return;
+      const ok = await resumeSession(sid);
+      if (ok) await loadHistoryList();
+    }
+
+    async function deleteSession(sid, itemEl) {
+      itemEl.remove();
+      await fetch(`/sessions/${sid}`, { method: 'DELETE' });
+
+      // If deleted the active session, create a new one
+      if (sid === sessionId) {
+        await newSession();
+      } else {
+        await loadHistoryList();
+      }
+    }
+
+    function escHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Upload ─────────────────────────────────────
+    const uploadZone = document.getElementById('upload-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadStatus = document.getElementById('upload-status');
+
+    uploadZone.addEventListener('click', () => fileInput.click());
+    uploadZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
+
+    uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+    uploadZone.addEventListener('drop', e => {
+      e.preventDefault();
+      uploadZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) handleFile(file);
+    });
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) handleFile(fileInput.files[0]);
+    });
+
+    async function handleFile(file) {
+      setUploadStatus('loading', `Carregando ${file.name}…`);
+
+      const form = new FormData();
+      form.append('file', file);
+      form.append('session_id', sessionId);
+
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: form });
+        const data = await res.json();
+
+        if (data.error) {
+          setUploadStatus('error', data.error);
+          return;
+        }
+
+        setUploadStatus('', '');
+        renderDatasetInfo(data);
+        enableChat();
+
+        hideWelcome();
+        appendMessage('assistant',
+          `✅ **${data.filename}** carregado com sucesso!\n\n` +
+          `- **${data.n_rows.toLocaleString('pt-BR')} linhas** × **${data.n_cols} colunas**\n` +
+          `- Colunas: ${data.columns.map(c => `\`${c.name}\``).join(', ')}\n\n` +
+          `O que você gostaria de saber sobre esses dados?`
+        );
+
+        await loadHistoryList();
+
+      } catch (err) {
+        setUploadStatus('error', 'Erro de conexão: ' + err.message);
+      }
+    }
+
+    function setUploadStatus(type, msg) {
+      uploadStatus.className = type ? `upload-status ${type}` : '';
+      uploadStatus.textContent = msg;
+      uploadStatus.style.display = msg ? 'block' : 'none';
+    }
+
+    function renderDatasetInfo(data) {
+      document.getElementById('ds-filename').textContent = data.filename;
+      document.getElementById('ds-dims').textContent =
+        `${data.n_rows.toLocaleString('pt-BR')} linhas · ${data.n_cols} colunas`;
+
+      const list = document.getElementById('columns-list');
+      list.innerHTML = '';
+
+      data.columns.forEach(col => {
+        const isNum = col.dtype.startsWith('int') || col.dtype.startsWith('float');
+        const badge = `<span class="dtype-badge ${isNum ? '' : 'cat'}">${col.dtype}</span>`;
+        let meta = `${col.nunique} únicos`;
+        if (col.nulls > 0) meta += ` · ${col.nulls} nulos`;
+        if (isNum && 'min' in col) meta += ` · ${col.min}–${col.max}`;
+
+        list.innerHTML += `
+          <div class="col-item">
+            <div class="col-name">${col.name}${badge}</div>
+            <div class="col-meta">${meta}</div>
+          </div>`;
+      });
+
+      document.getElementById('dataset-info').classList.add('visible');
+    }
+
+    function enableChat() {
+      document.getElementById('msg-input').disabled = false;
+      document.getElementById('btn-send').disabled = false;
+      document.getElementById('msg-input').focus();
+      document.getElementById('btn-clear').classList.add('visible');
+    }
+
+    function disableChat() {
+      document.getElementById('msg-input').disabled = true;
+      document.getElementById('btn-send').disabled = true;
+    }
+
+    // ── Chat ───────────────────────────────────────
+    const msgInput = document.getElementById('msg-input');
+    const btnSend = document.getElementById('btn-send');
+
+    msgInput.addEventListener('input', () => {
+      msgInput.style.height = 'auto';
+      msgInput.style.height = Math.min(msgInput.scrollHeight, 140) + 'px';
+    });
+
+    msgInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    btnSend.addEventListener('click', sendMessage);
+
+    async function sendMessage() {
+      if (isWaiting) return;
+      const text = msgInput.value.trim();
+      if (!text) return;
+
+      hideWelcome();
+      appendMessage('user', text);
+      msgInput.value = '';
+      msgInput.style.height = 'auto';
+      setWaiting(true);
+
+      const typingEl = appendTyping();
+
+      try {
+        const res = await fetch('/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: sessionId, message: text }),
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let reply = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split('\n');
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6);
+            if (payload === '[DONE]') break;
+
+            try {
+              const parsed = JSON.parse(payload);
+              if (parsed.text) reply = parsed.text;
+              if (parsed.error) reply = `⚠️ ${parsed.error}`;
+            } catch (_) {}
+          }
+        }
+
+        typingEl.remove();
+        if (reply) appendMessage('assistant', reply);
+
+        // Update chat title and history list
+        const sessRes = await fetch(`/sessions/${sessionId}`);
+        if (sessRes.ok) {
+          const sessData = await sessRes.json();
+          if (sessData.title && sessData.title !== 'Nova conversa') {
+            document.getElementById('chat-title').textContent = sessData.title;
+          }
+        }
+        await loadHistoryList();
+
+      } catch (err) {
+        typingEl.remove();
+        appendMessage('assistant', `⚠️ Erro de conexão: ${err.message}`);
+      } finally {
+        setWaiting(false);
+      }
+    }
+
+    function setWaiting(val) {
+      isWaiting = val;
+      btnSend.disabled = val;
+      msgInput.disabled = val;
+      if (!val) msgInput.focus();
+    }
+
+    function hideWelcome() {
+      const w = document.getElementById('welcome');
+      if (w) w.remove();
+    }
+
+    function appendMessage(role, text) {
+      const messages = document.getElementById('messages');
+      const div = document.createElement('div');
+      div.className = `message ${role}`;
+      div.innerHTML = `
+        <div class="avatar">${role === 'user' ? '🧑' : '🤖'}</div>
+        <div class="bubble">${marked.parse(text)}</div>
+      `;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+      return div;
+    }
+
+    function appendTyping() {
+      const messages = document.getElementById('messages');
+      const div = document.createElement('div');
+      div.className = 'message assistant';
+      div.innerHTML = `
+        <div class="avatar">🤖</div>
+        <div class="bubble">
+          <div class="typing-indicator">
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+      `;
+      messages.appendChild(div);
+      messages.scrollTop = messages.scrollHeight;
+      return div;
+    }
+
+    async function clearHistory() {
+      if (!sessionId) return;
+      await fetch(`/sessions/${sessionId}/history`, { method: 'DELETE' });
+      document.getElementById('messages').innerHTML = '';
+      document.getElementById('chat-title').textContent =
+        'Converse com seus dados — faça perguntas, peça análises, ranqueamentos ou insights.';
+      appendMessage('assistant', '💬 Conversa reiniciada. Os dados continuam carregados — pode continuar perguntando!');
+      await loadHistoryList();
+    }
+
+    // ── Start ──────────────────────────────────────
+    init();
+  </script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+flask
+pandas
+openpyxl
+xlrd
+matplotlib
+seaborn
+statsmodels
+pmdarima
+scipy
