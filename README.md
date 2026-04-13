@@ -1,6 +1,6 @@
 # QualiQuanti Bot
 
-![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=flat&logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.10--3.13-3776AB?style=flat&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-2.x-000000?style=flat&logo=flask&logoColor=white)
 ![JavaScript](https://img.shields.io/badge/JavaScript-ES6+-F7DF1E?style=flat&logo=javascript&logoColor=black)
 ![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat&logo=html5&logoColor=white)
@@ -80,7 +80,7 @@ Antes de instalar o projeto, você precisa ter instalado na sua máquina:
 
 | Ferramenta | Versão mínima | Para que serve |
 |---|---|---|
-| Python | 3.10+ | Rodar o backend Flask |
+| Python | 3.10–3.13 | Rodar o backend Flask (3.14+ incompatível com pandas) |
 | Node.js | 18+ | Necessário para o Claude Code CLI |
 | npm | 9+ | Instalado junto com o Node.js |
 | Git | qualquer | Clonar o repositório |
@@ -96,7 +96,7 @@ Você também precisa de uma conta na Anthropic com acesso ao Claude Code CLI (v
 ### Passo 1 — Instalar Python 3.10+
 
 **Windows:**
-- Baixe em [python.org/downloads](https://www.python.org/downloads/)
+- Baixe em [python.org/downloads](https://www.python.org/downloads/) — use a versão **3.13 ou anterior** (3.14+ é incompatível com pandas)
 - Durante a instalação, **marque a opção "Add Python to PATH"**
 - Verifique: `python --version`
 
