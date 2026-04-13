@@ -8,7 +8,7 @@
 ![pandas](https://img.shields.io/badge/pandas-150458?style=flat&logo=pandas&logoColor=white)
 ![Claude](https://img.shields.io/badge/Claude_Code-Anthropic-D97757?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
-![Version](https://img.shields.io/badge/version-v1.0.1-blue?style=flat)
+![Version](https://img.shields.io/badge/version-v1.0.2-blue?style=flat)
 
 > **Versão Beta** — Converse com seus dados em português, sem escrever uma linha de código.
 >
