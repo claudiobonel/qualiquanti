@@ -8,7 +8,7 @@
 ![pandas](https://img.shields.io/badge/pandas-150458?style=flat&logo=pandas&logoColor=white)
 ![Claude](https://img.shields.io/badge/Claude_Code-Anthropic-D97757?style=flat)
 ![License](https://img.shields.io/badge/License-MIT-green?style=flat)
-![Version](https://img.shields.io/badge/version-v1.0.3-blue?style=flat)
+![Version](https://img.shields.io/badge/version-v1.0.4-blue?style=flat)
 
 > **Versão Beta** — Converse com seus dados em português, sem escrever uma linha de código.
 >
@@ -24,26 +24,106 @@ Você carrega um arquivo `.xlsx`, faz sua pergunta e o bot cuida do resto.
 
 ---
 
+## Privacidade e dados sensíveis
+
+> **Seus dados brutos nunca saem da sua máquina.**
+
+O QualiQuanti Bot foi projetado com privacidade como prioridade. O arquivo que você carrega é processado inteiramente no seu computador — o LLM (Claude) recebe apenas o necessário para realizar a análise, e valores sensíveis são anonimizados localmente antes de qualquer envio.
+
+### O que trafega para a Anthropic
+
+| Dado | Trafega? | Observação |
+|---|---|---|
+| Arquivo `.xlsx` original | **Não** | Fica somente em disco local |
+| CSV convertido (original) | **Não** | Fica somente em disco local |
+| CSV mascarado (anonimizado) | Parcialmente* | Somente para datasets grandes, via leitura local do Claude |
+| Colunas não sensíveis | Sim | Incluídas no prompt para análise |
+| Pergunta do usuário | Sim | Necessário para o LLM responder |
+| Resposta do LLM | Retorna | Processada localmente antes de exibir |
+
+*Para datasets grandes, o Claude Code lê o arquivo mascarado diretamente do disco local — não há upload para servidores externos.
+
+### Fluxo de proteção de dados sensíveis
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     EXECUÇÃO LOCAL                          │
+│                                                             │
+│  Arquivo .xlsx ──► CSV original (disco)                     │
+│                         │                                   │
+│                  confirma colunas sensíveis                  │
+│                         │                                   │
+│                    mascaramento                             │
+│                  (MD5 local: CPF → ID_3D8F2A)               │
+│                         │                                   │
+│                  CSV mascarado (disco)                       │
+│                         │                                   │
+└─────────────────────────┼───────────────────────────────────┘
+                          │ prompt com dados mascarados
+                          ▼
+                    Claude (Anthropic)
+                    analisa IDs anônimos
+                          │ resposta com IDs
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                     EXECUÇÃO LOCAL                          │
+│                                                             │
+│  de-mascaramento: ID_3D8F2A → CPF original                  │
+│  (mapa reconstruído do CSV original em disco)               │
+│                         │                                   │
+│                  exibe ao usuário                           │
+│                  com valores reais                          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Como marcar colunas sensíveis
+
+Após o upload, um painel é exibido automaticamente com todas as colunas detectadas. Marque as que contêm dados sensíveis (CPF, nomes, salários, endereços, identificadores internos, etc.) antes de iniciar a conversa.
+
+- Colunas marcadas aparecem com o badge 🔒 na barra lateral
+- Os valores reais **nunca chegam ao Claude** — somente IDs anônimos do tipo `ID_A3F2C1`
+- A resposta exibida para você usa os valores originais (de-mascaramento local)
+- O mapeamento ID ↔ valor original **não sai da sua máquina**
+
+> Para dados que não possuem colunas sensíveis, clique em **Continuar sem marcar** — os dados são enviados normalmente para análise completa.
+
+---
+
 ## Como funciona
 
 ```
 Usuário (navegador)
        │
        ▼
-  Flask (app.py)          ← backend Python
-       │  monta prompt com dados + histórico
-       ▼
-  Claude Code CLI          ← IA da Anthropic
-       │  executa análise via Skills
-       ▼
-  Resposta (markdown)     → renderizada no browser
+  Flask (app.py)                  ← backend Python local
+       │
+       ├─ upload: converte .xlsx → CSV (local)
+       │
+       ├─ seleção de colunas sensíveis
+       │   └─ gera CSV mascarado em disco (local)
+       │
+       ├─ cada pergunta:
+       │   ├─ monta prompt (dados já mascarados)
+       │   └─ chama Claude Code CLI
+       │                │
+       │                ▼
+       │          Claude (Anthropic)    ← LLM na nuvem
+       │          analisa com IDs       (recebe dados mascarados)
+       │                │
+       │                ▼
+       └─ de-mascara resposta (local)
+              │
+              ▼
+       Usuário vê valores reais
 ```
 
 1. Você faz upload de uma planilha
 2. O backend converte para CSV e extrai os metadados (colunas, tipos, nulos, min/max)
-3. A cada pergunta, o servidor monta um prompt com: metadados + dados + histórico + sua pergunta
-4. O **Claude Code CLI** recebe esse prompt, decide qual *skill* ativar e executa a análise
-5. A resposta chega em tempo real no browser via streaming
+3. Você marca (opcionalmente) as colunas sensíveis — um CSV mascarado é gerado em disco
+4. A cada pergunta, o servidor monta um prompt com os dados **já mascarados** + histórico + pergunta
+5. O **Claude Code CLI** recebe o prompt, decide qual *skill* ativar e executa a análise
+6. A resposta retorna com IDs anônimos, que são substituídos pelos valores originais **localmente**
+7. O resultado final com valores reais chega ao browser via streaming
 
 ---
 
@@ -96,7 +176,7 @@ Você também precisa de uma conta na Anthropic com acesso ao Claude Code CLI (v
 ### Passo 1 — Instalar Python 3.10+
 
 **Windows:**
-- Baixe em [python.org/downloads](https://www.python.org/downloads/) — use a versão **3.13 ou anterior** 
+- Baixe em [python.org/downloads](https://www.python.org/downloads/) — use a versão **3.13 ou anterior**
 - Durante a instalação, **marque a opção "Add Python to PATH"**
 - Verifique: `python --version`
 
@@ -243,8 +323,9 @@ Pronto! O bot está funcionando.
 
 1. **Criar uma nova conversa** — clique em "Nova conversa" na barra lateral
 2. **Carregar um arquivo** — arraste e solte ou clique na área de upload; formato aceito: `.xlsx`
-3. **Fazer perguntas** — escreva sua pergunta em português no campo de texto e pressione Enter ou clique em Enviar
-4. **Navegar no histórico** — conversas anteriores ficam salvas na barra lateral e podem ser retomadas a qualquer momento
+3. **Marcar colunas sensíveis** — um painel é exibido automaticamente; selecione as colunas com dados sensíveis (ou clique em "Continuar sem marcar")
+4. **Fazer perguntas** — escreva sua pergunta em português e pressione Enter ou clique em Enviar
+5. **Navegar no histórico** — conversas anteriores ficam salvas na barra lateral e podem ser retomadas a qualquer momento
 
 **Exemplos de perguntas:**
 - "Quais são os 10 produtos mais vendidos?"
@@ -281,7 +362,9 @@ qualiquanti-bot/
 │   └── index.html                    ← Interface web (HTML + CSS + JS)
 ├── static/
 │   └── charts/                       ← Gráficos gerados (criado automaticamente)
-├── uploads/                          ← Arquivos enviados convertidos em CSV (criado automaticamente)
+├── uploads/                          ← Arquivos CSV — originais e versões mascaradas
+│   ├── {session_id}.csv              ← CSV original (nunca enviado ao LLM)
+│   └── {session_id}_masked.csv       ← CSV com colunas sensíveis anonimizadas (gerado localmente)
 ├── history/                          ← Histórico de conversas em JSON (criado automaticamente)
 └── .claude/
     └── skills/
@@ -305,7 +388,7 @@ Você pode personalizar o comportamento do servidor criando um arquivo `.env` ou
 | `FLASK_DEBUG` | `false` | Modo debug do Flask (não use em produção) |
 | `CLAUDE_CMD` | `claude` | Comando para invocar o Claude Code CLI |
 | `CLAUDE_TIMEOUT` | `600` | Tempo limite em segundos por análise |
-| `MAX_FULL_CSV_BYTES` | `400000` | Tamanho máximo para enviar o CSV completo ao modelo (~400KB) |
+| `MAX_PROMPT_CSV_BYTES` | `400000` | Tamanho máximo para enviar o CSV diretamente no prompt (~400KB). Datasets maiores são referenciados por caminho de arquivo. |
 
 **Exemplo de uso:**
 ```bash
@@ -357,6 +440,9 @@ O timeout padrão é 600 segundos. Para arquivos muito grandes, aumente:
 CLAUDE_TIMEOUT=1200 python app.py
 ```
 
+### Colunas sensíveis aparecem com IDs na resposta (não de-mascaradas)
+Isso pode indicar que o arquivo original foi removido ou movido após o upload. O de-mascaramento depende do arquivo `uploads/{session_id}.csv` para reconstruir o mapa de IDs. Não mova nem exclua os arquivos da pasta `uploads/` durante uma sessão ativa.
+
 ---
 
 ## Tecnologias utilizadas
@@ -368,6 +454,7 @@ CLAUDE_TIMEOUT=1200 python app.py
 - **Séries temporais:** statsmodels, pmdarima
 - **Frontend:** HTML5 + CSS3 + JavaScript puro (sem frameworks)
 - **Comunicação em tempo real:** Server-Sent Events (SSE)
+- **Anonimização:** MD5 determinístico (hashlib — biblioteca padrão Python)
 
 ---
 
@@ -375,9 +462,9 @@ CLAUDE_TIMEOUT=1200 python app.py
 
 - Dados precisam estar tabulados e limpos antes do upload
 - Análises de séries temporais exigem no mínimo 24 períodos
-- Arquivos maiores que ~400KB são enviados apenas com amostra (500 linhas) + estatísticas
-- Uma sessão por vez por instância do servidor
+- Para datasets maiores que ~400KB, o Claude lê o arquivo mascarado do disco local — requer que o servidor e o Claude Code CLI rodem na mesma máquina
 - Gráficos ficam salvos localmente e não são excluídos automaticamente
+- O de-mascaramento é feito por substituição de texto — respostas muito longas com muitos IDs distintos podem ter impacto mínimo de performance
 
 ---
 

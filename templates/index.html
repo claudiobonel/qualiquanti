@@ -469,6 +469,123 @@
     #upload-status.loading { display: block; color: var(--accent); }
     #upload-status.error { display: block; color: var(--danger); }
 
+    /* Sensitive badge */
+    .dtype-badge.sensitive { background: rgba(240, 79, 90, 0.15); color: var(--danger); }
+
+    /* ── Sensitivity Modal ───────────────────────── */
+    #sensitivity-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+
+    #sensitivity-modal.visible { display: flex; }
+
+    #sensitivity-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      width: 500px;
+      max-width: 92vw;
+      max-height: 82vh;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    #sensitivity-card h3 { font-size: 16px; font-weight: 700; color: var(--text); }
+
+    #sensitivity-card .sensitivity-desc {
+      font-size: 13px;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
+    #sensitivity-columns-list {
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 360px;
+    }
+
+    .sensitivity-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      background: var(--surface2);
+      border: 1px solid transparent;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    .sensitivity-label:hover { background: rgba(91, 124, 246, 0.08); }
+
+    .sensitivity-label:has(input:checked) {
+      background: rgba(240, 79, 90, 0.08);
+      border-color: rgba(240, 79, 90, 0.35);
+    }
+
+    .sensitivity-checkbox {
+      accent-color: var(--danger);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .sensitivity-col-name { flex: 1; font-size: 13px; font-weight: 500; color: var(--text); }
+
+    .sensitivity-col-type {
+      font-size: 11px;
+      color: var(--text-muted);
+      background: var(--bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    #sensitivity-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding-top: 4px;
+      border-top: 1px solid var(--border);
+    }
+
+    #btn-skip-sensitivity {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 8px;
+      padding: 9px 16px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    #btn-skip-sensitivity:hover { border-color: var(--text-muted); color: var(--text); }
+
+    #btn-confirm-sensitivity {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      border-radius: 8px;
+      padding: 9px 18px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #btn-confirm-sensitivity:hover { background: var(--accent-hover); }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -542,10 +659,28 @@
     </div>
   </section>
 
+  <!-- Sensitivity Modal -->
+  <div id="sensitivity-modal">
+    <div id="sensitivity-card">
+      <h3>🔒 Marcar colunas sensíveis</h3>
+      <p class="sensitivity-desc">
+        Selecione as colunas com dados sensíveis (CPF, nomes, salários, etc.).
+        Seus valores serão anonimizados localmente antes de serem enviados ao Claude.
+        Se não houver colunas sensíveis, clique em <strong>Continuar sem marcar</strong>.
+      </p>
+      <div id="sensitivity-columns-list"></div>
+      <div id="sensitivity-actions">
+        <button id="btn-skip-sensitivity" onclick="confirmSensitiveColumns(false)">Continuar sem marcar</button>
+        <button id="btn-confirm-sensitivity" onclick="confirmSensitiveColumns(true)">Confirmar seleção</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // ── State ──────────────────────────────────────
     let sessionId = null;
     let isWaiting = false;
+    let uploadedFileData = null; // dados do último upload, usado pelo modal
 
     // ── Init ───────────────────────────────────────
     async function init() {
@@ -590,7 +725,7 @@
 
       // Restore dataset info
       if (data.file && data.file_ok) {
-        renderDatasetInfo(data.file);
+        renderDatasetInfo(data.file, data.sensitive_columns || []);
         enableChat();
       } else {
         document.getElementById('dataset-info').classList.remove('visible');
@@ -758,22 +893,60 @@
         }
 
         setUploadStatus('', '');
-        renderDatasetInfo(data);
-        enableChat();
-
-        hideWelcome();
-        appendMessage('assistant',
-          `✅ **${data.filename}** carregado com sucesso!\n\n` +
-          `- **${data.n_rows.toLocaleString('pt-BR')} linhas** × **${data.n_cols} colunas**\n` +
-          `- Colunas: ${data.columns.map(c => `\`${c.name}\``).join(', ')}\n\n` +
-          `O que você gostaria de saber sobre esses dados?`
-        );
-
+        uploadedFileData = data;
+        showSensitivityModal(data);
         await loadHistoryList();
 
       } catch (err) {
         setUploadStatus('error', 'Erro de conexão: ' + err.message);
       }
+    }
+
+    function showSensitivityModal(data) {
+      const list = document.getElementById('sensitivity-columns-list');
+      list.innerHTML = '';
+      data.columns.forEach(col => {
+        const div = document.createElement('div');
+        div.innerHTML = `
+          <label class="sensitivity-label">
+            <input type="checkbox" class="sensitivity-checkbox" value="${escHtml(col.name)}">
+            <span class="sensitivity-col-name">${escHtml(col.name)}</span>
+            <span class="sensitivity-col-type">${escHtml(col.dtype)}</span>
+          </label>`;
+        list.appendChild(div);
+      });
+      document.getElementById('sensitivity-modal').classList.add('visible');
+    }
+
+    async function confirmSensitiveColumns(useSeletion) {
+      const sensitive = useSeletion
+        ? Array.from(document.querySelectorAll('.sensitivity-checkbox:checked')).map(cb => cb.value)
+        : [];
+
+      await fetch(`/sessions/${sessionId}/sensitive-columns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ columns: sensitive }),
+      });
+
+      document.getElementById('sensitivity-modal').classList.remove('visible');
+
+      const data = uploadedFileData;
+      renderDatasetInfo(data, sensitive);
+      enableChat();
+      hideWelcome();
+
+      const sensitiveNote = sensitive.length > 0
+        ? `\n- **${sensitive.length} coluna(s) sensível(is) anonimizada(s):** ${sensitive.map(c => `\`${c}\``).join(', ')}`
+        : '';
+
+      appendMessage('assistant',
+        `✅ **${data.filename}** carregado com sucesso!\n\n` +
+        `- **${data.n_rows.toLocaleString('pt-BR')} linhas** × **${data.n_cols} colunas**\n` +
+        `- Colunas: ${data.columns.map(c => `\`${c.name}\``).join(', ')}` +
+        sensitiveNote + `\n\n` +
+        `O que você gostaria de saber sobre esses dados?`
+      );
     }
 
     function setUploadStatus(type, msg) {
@@ -782,7 +955,8 @@
       uploadStatus.style.display = msg ? 'block' : 'none';
     }
 
-    function renderDatasetInfo(data) {
+    function renderDatasetInfo(data, sensitiveColumns = []) {
+      const sensitiveSet = new Set(sensitiveColumns);
       document.getElementById('ds-filename').textContent = data.filename;
       document.getElementById('ds-dims').textContent =
         `${data.n_rows.toLocaleString('pt-BR')} linhas · ${data.n_cols} colunas`;
@@ -793,13 +967,15 @@
       data.columns.forEach(col => {
         const isNum = col.dtype.startsWith('int') || col.dtype.startsWith('float');
         const badge = `<span class="dtype-badge ${isNum ? '' : 'cat'}">${col.dtype}</span>`;
+        const sensitiveBadge = sensitiveSet.has(col.name)
+          ? `<span class="dtype-badge sensitive">🔒</span>` : '';
         let meta = `${col.nunique} únicos`;
         if (col.nulls > 0) meta += ` · ${col.nulls} nulos`;
         if (isNum && 'min' in col) meta += ` · ${col.min}–${col.max}`;
 
         list.innerHTML += `
           <div class="col-item">
-            <div class="col-name">${col.name}${badge}</div>
+            <div class="col-name">${escHtml(col.name)}${badge}${sensitiveBadge}</div>
             <div class="col-meta">${meta}</div>
           </div>`;
       });

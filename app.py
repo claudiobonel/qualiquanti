@@ -6,8 +6,10 @@ O LLM faz toda a análise dinamicamente — sem regras hardcoded nem pré-proces
 Histórico persistente: cada sessão é salva em history/{session_id}.json
 e pode ser retomada a qualquer momento.
 """
+import hashlib
 import io
 import json
+import re
 import os
 import subprocess
 import tempfile
@@ -24,10 +26,10 @@ HISTORY_DIR = os.path.join(os.path.dirname(__file__), "history")
 os.makedirs(UPLOAD_DIR,  exist_ok=True)
 os.makedirs(HISTORY_DIR, exist_ok=True)
 
-CLAUDE_CMD       = os.getenv("CLAUDE_CMD", "claude").split()
-CLAUDE_TIMEOUT   = int(os.getenv("CLAUDE_TIMEOUT", "600"))
-WORK_DIR         = os.path.dirname(os.path.abspath(__file__))
-MAX_FULL_CSV_BYTES = int(os.getenv("MAX_FULL_CSV_BYTES", str(400_000)))
+CLAUDE_CMD         = os.getenv("CLAUDE_CMD", "claude").split()
+CLAUDE_TIMEOUT     = int(os.getenv("CLAUDE_TIMEOUT", "600"))
+WORK_DIR           = os.path.dirname(os.path.abspath(__file__))
+MAX_PROMPT_CSV_BYTES = int(os.getenv("MAX_PROMPT_CSV_BYTES", str(400_000)))
 
 # Cache em memória das sessões ativas: session_id → {file_path, meta, history, title, ...}
 _sessions: dict = {}
@@ -47,13 +49,15 @@ def _save_session(sid: str) -> None:
     if not sess:
         return
     payload = {
-        "session_id":  sid,
-        "title":       sess.get("title", "Nova conversa"),
-        "created_at":  sess.get("created_at", _now()),
-        "updated_at":  _now(),
-        "file": sess.get("meta"),          # metadados do arquivo (pode ser None)
-        "file_path":   sess.get("file_path"),
-        "history":     sess.get("history", []),
+        "session_id":        sid,
+        "title":             sess.get("title", "Nova conversa"),
+        "created_at":        sess.get("created_at", _now()),
+        "updated_at":        _now(),
+        "file":              sess.get("meta"),
+        "file_path":         sess.get("file_path"),
+        "masked_path":       sess.get("masked_path"),
+        "history":           sess.get("history", []),
+        "sensitive_columns": sess.get("sensitive_columns", []),
     }
     with open(_history_path(sid), "w", encoding="utf-8") as fh:
         json.dump(payload, fh, ensure_ascii=False, indent=2)
@@ -67,11 +71,13 @@ def _load_session(sid: str) -> dict | None:
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
     sess = {
-        "title":      data.get("title", "Conversa"),
-        "created_at": data.get("created_at", _now()),
-        "file_path":  data.get("file_path"),
-        "meta":       data.get("file"),
-        "history":    data.get("history", []),
+        "title":             data.get("title", "Conversa"),
+        "created_at":        data.get("created_at", _now()),
+        "file_path":         data.get("file_path"),
+        "masked_path":       data.get("masked_path"),
+        "meta":              data.get("file"),
+        "history":           data.get("history", []),
+        "sensitive_columns": data.get("sensitive_columns", []),
     }
     _sessions[sid] = sess
     return sess
@@ -137,11 +143,13 @@ def new_session():
     """Cria uma nova sessão em branco."""
     sid = str(uuid.uuid4())
     _sessions[sid] = {
-        "title":      "Nova conversa",
-        "created_at": _now(),
-        "file_path":  None,
-        "meta":       None,
-        "history":    [],
+        "title":             "Nova conversa",
+        "created_at":        _now(),
+        "file_path":         None,
+        "masked_path":       None,
+        "meta":              None,
+        "history":           [],
+        "sensitive_columns": [],
     }
     _save_session(sid)
     return jsonify({"session_id": sid})
@@ -161,23 +169,58 @@ def get_session(sid: str):
     file_ok = bool(sess.get("file_path") and os.path.exists(sess["file_path"]))
 
     return jsonify({
-        "session_id": sid,
-        "title":      sess.get("title", "Conversa"),
-        "created_at": sess.get("created_at"),
-        "file":       sess.get("meta"),
-        "file_ok":    file_ok,
-        "history":    sess.get("history", []),
+        "session_id":        sid,
+        "title":             sess.get("title", "Conversa"),
+        "created_at":        sess.get("created_at"),
+        "file":              sess.get("meta"),
+        "file_ok":           file_ok,
+        "history":           sess.get("history", []),
+        "sensitive_columns": sess.get("sensitive_columns", []),
     })
 
 
 @app.route("/sessions/<sid>", methods=["DELETE"])
 def delete_session(sid: str):
     """Remove sessão da memória e do disco."""
-    _sessions.pop(sid, None)
+    sess = _sessions.pop(sid, None)
+    # Remove arquivos gerados pela sessão
+    for key in ("file_path", "masked_path"):
+        fpath = (sess or {}).get(key)
+        if fpath and os.path.exists(fpath):
+            try:
+                os.unlink(fpath)
+            except OSError:
+                pass
     path = _history_path(sid)
     if os.path.exists(path):
         os.unlink(path)
     return jsonify({"ok": True})
+
+
+@app.route("/sessions/<sid>/sensitive-columns", methods=["POST"])
+def set_sensitive_columns(sid: str):
+    """Define quais colunas serão anonimizadas e gera o CSV mascarado em disco."""
+    if sid not in _sessions:
+        if not _load_session(sid):
+            return jsonify({"error": "Sessão não encontrada."}), 404
+    body = request.get_json(silent=True) or {}
+    columns = body.get("columns", [])
+    _sessions[sid]["sensitive_columns"] = columns
+
+    # Remove masked anterior
+    old_masked = _sessions[sid].get("masked_path")
+    if old_masked and os.path.exists(old_masked):
+        try:
+            os.unlink(old_masked)
+        except OSError:
+            pass
+
+    # Gera novo CSV mascarado (somente se há colunas sensíveis)
+    masked_path = _generate_masked_csv(sid, _sessions[sid]) if columns else None
+    _sessions[sid]["masked_path"] = masked_path
+
+    _save_session(sid)
+    return jsonify({"ok": True, "sensitive_columns": columns})
 
 
 @app.route("/sessions/<sid>/history", methods=["DELETE"])
@@ -242,10 +285,20 @@ def upload():
             "columns":  columns_meta,
         }
 
+        # Remove arquivo mascarado anterior, se existir
+        old_masked = _sessions[sid].get("masked_path")
+        if old_masked and os.path.exists(old_masked):
+            try:
+                os.unlink(old_masked)
+            except OSError:
+                pass
+
         _sessions[sid].update({
-            "file_path": csv_path,
-            "meta":      meta,
-            "history":   [],
+            "file_path":         csv_path,
+            "masked_path":       None,
+            "meta":              meta,
+            "history":           [],
+            "sensitive_columns": [],
         })
         _save_session(sid)
 
@@ -299,6 +352,11 @@ def chat():
 
             reply = result.stdout.strip() if result.returncode == 0 \
                 else f"⚠️ Erro do Claude: {result.stderr.strip() or 'sem detalhes'}"
+
+            # De-mascara localmente: substitui IDs anônimos pelos valores originais
+            if sess.get("sensitive_columns"):
+                reverse_map = _build_reverse_map(sess)
+                reply = _apply_reverse_map(reply, reverse_map)
 
             # Atualiza histórico e título
             sess["history"].append({"role": "user",      "content": message})
@@ -359,10 +417,12 @@ def _build_data_section(sess: dict) -> str:
     if not meta or not file_path:
         return "## Dados\n\nNenhum dataset carregado ainda."
 
+    sensitive_set = set(sess.get("sensitive_columns", []))
     col_lines = []
     for c in meta["columns"]:
+        sensitive_tag = " | **[SENSÍVEL — valores anonimizados]**" if c["name"] in sensitive_set else ""
         line = (f"- **{c['name']}** | tipo: {c['dtype']} "
-                f"| {c['nunique']} valores únicos | {c['nulls']} nulos")
+                f"| {c['nunique']} valores únicos | {c['nulls']} nulos{sensitive_tag}")
         if "min" in c:
             line += f" | min={c['min']}, max={c['max']}"
         col_lines.append(line)
@@ -373,22 +433,32 @@ def _build_data_section(sess: dict) -> str:
         f"**Colunas:**\n" + "\n".join(col_lines)
     )
 
+    # Arquivo a referenciar: versão mascarada (se existir) ou original
+    sensitive   = sess.get("sensitive_columns", [])
+    masked_path = sess.get("masked_path")
+    ref_path    = masked_path if (sensitive and masked_path and os.path.exists(masked_path)) else file_path
+
     try:
-        df       = pd.read_csv(file_path)
-        csv_str  = df.to_csv(index=False)
+        df = pd.read_csv(ref_path)  # lê já mascarado quando aplicável
+
+        csv_str   = df.to_csv(index=False)
         csv_bytes = csv_str.encode("utf-8")
 
-        if len(csv_bytes) <= MAX_FULL_CSV_BYTES:
+        if len(csv_bytes) <= MAX_PROMPT_CSV_BYTES:
+            # Dataset cabe no prompt — envia completo
             data_block = f"\n\n### Dados completos\n```csv\n{csv_str}```"
         else:
+            # Dataset grande — envia amostra + caminho do arquivo (já mascarado)
             sample_csv = df.head(500).to_csv(index=False)
             stats_str  = df.describe(include="all").to_string()
             data_block = (
                 f"\n\n### Amostra (primeiras 500 de {meta['n_rows']:,} linhas)\n"
                 f"```csv\n{sample_csv}```\n\n"
                 f"### Estatísticas descritivas\n```\n{stats_str}\n```\n\n"
-                f"> Arquivo completo: `{file_path}`"
+                f"> **Arquivo completo disponível:** `{ref_path}`\n"
+                f"> Leia o arquivo completo antes de responder para garantir análise sobre todos os dados."
             )
+
     except Exception as exc:
         data_block = f"\n\n⚠️ Erro ao ler dados: {exc}"
 
@@ -403,6 +473,63 @@ def _build_history_section(history: list) -> str:
         role = "**Usuário**" if msg["role"] == "user" else "**Assistente**"
         turns.append(f"{role}: {msg['content']}")
     return "\n\n---\n\n".join(turns)
+
+
+def _generate_masked_csv(sid: str, sess: dict) -> str | None:
+    """Gera em disco um CSV com as colunas sensíveis anonimizadas. Retorna o caminho."""
+    file_path = sess.get("file_path")
+    sensitive = sess.get("sensitive_columns", [])
+    if not file_path or not os.path.exists(file_path) or not sensitive:
+        return None
+    try:
+        df = pd.read_csv(file_path)
+        for col in sensitive:
+            if col in df.columns:
+                df[col] = df[col].apply(
+                    lambda v, c=col: _mask_value(str(v), c) if pd.notna(v) else v
+                )
+        masked_path = os.path.join(UPLOAD_DIR, f"{sid}_masked.csv")
+        df.to_csv(masked_path, index=False)
+        return masked_path
+    except Exception:
+        return None
+
+
+def _mask_value(value: str, col_name: str) -> str:
+    """Gera um ID anônimo estável para um valor sensível (determinístico por col+valor)."""
+    h = hashlib.md5(f"{col_name}:{value}".encode()).hexdigest()[:6].upper()
+    return f"ID_{h}"
+
+
+def _build_reverse_map(sess: dict) -> dict:
+    """Lê o CSV original e constrói mapa ID_XXXXXX → valor_original para cada coluna sensível."""
+    file_path = sess.get("file_path")
+    sensitive = sess.get("sensitive_columns", [])
+    if not file_path or not sensitive or not os.path.exists(file_path):
+        return {}
+    try:
+        df = pd.read_csv(file_path)
+        reverse = {}
+        for col in sensitive:
+            if col not in df.columns:
+                continue
+            for val in df[col].dropna().unique():
+                masked_id = _mask_value(str(val), col)
+                reverse[masked_id] = str(val)
+        return reverse
+    except Exception:
+        return {}
+
+
+def _apply_reverse_map(text: str, reverse_map: dict) -> str:
+    """Substitui todos os IDs anônimos no texto pelos valores originais."""
+    if not reverse_map:
+        return text
+    return re.sub(
+        r'ID_[A-F0-9]{6}',
+        lambda m: reverse_map.get(m.group(0), m.group(0)),
+        text
+    )
 
 
 def _safe_float(value) -> float:
